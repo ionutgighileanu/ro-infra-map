@@ -7,6 +7,17 @@ export default function MapView() {
 
   useEffect(() => {
     const map = initMap();
+
+    if (map) {
+      const handle = requestAnimationFrame(() => {
+        map.resize();
+      });
+      return () => {
+        cancelAnimationFrame(handle);
+        map.remove();
+      };
+    }
+
     return () => {
       if (map) map.remove();
     };
@@ -17,6 +28,8 @@ export default function MapView() {
       ref={containerRef}
       sx={{
         flex: 1,
+        width: '100%',
+        height: '100%',
         position: 'relative',
         '& .maplibregl-ctrl-bottom-right': {
           bottom: '16px',
