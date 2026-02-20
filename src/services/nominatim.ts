@@ -1,10 +1,9 @@
 import type { SearchResult } from '../types';
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
-const OVERPASS_BASE = 'https://overpass-api.de/api/interpreter';
 
-// Bounding box aproximativ al Romaniei: [minLat, minLon, maxLat, maxLon]
-const ROMANIA_BBOX = { minLon: 20.0, minLat: 43.5, maxLon: 30.5, maxLat: 48.5 };
+// Bounding box al Romaniei (mai strict, exclude Serbia/Bulgaria)
+const ROMANIA_BBOX = { minLon: 20.2, minLat: 43.6, maxLon: 30.0, maxLat: 48.3 };
 
 const OSM_TYPE_MAP: Record<string, SearchResult['type']> = {
   motorway: 'highway',
@@ -34,8 +33,9 @@ function isRoadQuery(query: string): boolean {
   return /^(a\d+|dn\d+|dj\d+|dc\d+|autostrada|drum\s+national)/i.test(query.trim());
 }
 
-// Combina mai multe bounding box-uri intr-unul singur care le cuprinde pe toate
+// Combina mai multe bounding box-uri intr-unul singur
 function mergeBboxes(bboxes: [number, number, number, number][]): [number, number, number, number] {
+  if (bboxes.length === 0) return [0, 0, 0, 0];
   return bboxes.reduce(
     ([west, south, east, north], [w, s, e, n]) => [
       Math.min(west, w),
@@ -47,57 +47,59 @@ function mergeBboxes(bboxes: [number, number, number, number][]): [number, numbe
   );
 }
 
-// Calculeaza aria unui bbox
-function bboxArea(bbox: [number, number, number, number]): number {
-  return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
-}
-
-// Verifica daca un bbox se suprapune cu Romania (cel putin partial)
-function isInRomania(bbox: [number, number, number, number]): boolean {
+// Verifica daca un bbox se afla in Romania (cel putin partial, strict)
+function isStrictlyInRomania(bbox: [number, number, number, number]): boolean {
   const [west, south, east, north] = bbox;
+  // Centrul trebuie sa fie in Romania
+  const centerLon = (west + east) / 2;
+  const centerLat = (south + north) / 2;
   return (
-    east > ROMANIA_BBOX.minLon &&
-    west < ROMANIA_BBOX.maxLon &&
-    north > ROMANIA_BBOX.minLat &&
-    south < ROMANIA_BBOX.maxLat
+    centerLon > ROMANIA_BBOX.minLon &&
+    centerLon < ROMANIA_BBOX.maxLon &&
+    centerLat > ROMANIA_BBOX.minLat &&
+    centerLat < ROMANIA_BBOX.maxLat
   );
 }
 
-// Interogheaza Overpass API pentru bbox-ul complet al unui drum in Romania
-async function fetchRoadBboxFromOverpass(ref: string): Promise<[number, number, number, number] | null> {
+// Parseaza boundingbox din Nominatim: [minLat, maxLat, minLon, maxLon] -> [west, south, east, north]
+function parseNominatimBbox(boundingbox: string[]): [number, number, number, number] | undefined {
+  if (!boundingbox || boundingbox.length < 4) return undefined;
+  return [
+    parseFloat(boundingbox[2]), // minLon -> west
+    parseFloat(boundingbox[0]), // minLat -> south
+    parseFloat(boundingbox[3]), // maxLon -> east
+    parseFloat(boundingbox[1]), // maxLat -> north
+  ];
+}
+
+// Cauta toate segmentele unui drum dupa nume folosind Nominatim
+async function fetchRoadBboxByName(name: string): Promise<[number, number, number, number] | null> {
   try {
-    // Utilizeaza bbox-ul Romaniei ca filtru global pentru a evita rezultate din alte tari
-    const query = `[out:json][timeout:15][bbox:${ROMANIA_BBOX.minLat},${ROMANIA_BBOX.minLon},${ROMANIA_BBOX.maxLat},${ROMANIA_BBOX.maxLon}];
-(
-  way["ref"="${ref}"]["highway"~"motorway|trunk|primary|secondary"];
-  relation["ref"="${ref}"]["route"="road"];
-);
-out bb;`;
-
-    const res = await fetch(OVERPASS_BASE, {
-      method: 'POST',
-      body: query,
-      headers: { 'Content-Type': 'text/plain' },
+    const params = new URLSearchParams({
+      q: `${name}, Romania`,
+      format: 'json',
+      countrycodes: 'ro',
+      namedetails: '1',
+      limit: '50',
+      dedupe: '0', // fara deduplicare - vrem toate segmentele
     });
-
+    const res = await fetch(`${NOMINATIM_BASE}/search?${params}`, {
+      headers: {
+        'Accept-Language': 'ro,en',
+        'User-Agent': 'RO-InfraMap/1.0'
+      }
+    });
     if (!res.ok) return null;
     const data = await res.json();
-
     const bboxes: [number, number, number, number][] = [];
-    for (const el of data.elements ?? []) {
-      if (el.bounds) {
-        const b: [number, number, number, number] = [
-          el.bounds.minlon,
-          el.bounds.minlat,
-          el.bounds.maxlon,
-          el.bounds.maxlat,
-        ];
-        if (isInRomania(b)) {
-          bboxes.push(b);
+    for (const item of data) {
+      if (item.boundingbox) {
+        const bbox = parseNominatimBbox(item.boundingbox);
+        if (bbox && isStrictlyInRomania(bbox)) {
+          bboxes.push(bbox);
         }
       }
     }
-
     if (bboxes.length === 0) return null;
     return mergeBboxes(bboxes);
   } catch {
@@ -107,12 +109,9 @@ out bb;`;
 
 export async function searchNominatim(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return [];
-
   const trimmedQuery = query.trim();
-
-  // Pentru autostrazi si drumuri nationale, adauga "Romania" la query pentru precizie mai buna
+  // Pentru autostrazi si drumuri nationale, adauga "Romania" la query
   const searchQuery = isRoadQuery(trimmedQuery) ? `${trimmedQuery}, Romania` : trimmedQuery;
-
   const params = new URLSearchParams({
     q: searchQuery,
     format: 'json',
@@ -122,47 +121,38 @@ export async function searchNominatim(query: string): Promise<SearchResult[]> {
     limit: '50',
     dedupe: '1',
   });
-
   const res = await fetch(`${NOMINATIM_BASE}/search?${params}`, {
     headers: {
       'Accept-Language': 'ro,en',
       'User-Agent': 'RO-InfraMap/1.0'
     }
   });
-
   if (!res.ok) throw new Error('Nominatim request failed');
-
   const data = await res.json();
 
   // Mapeaza fiecare rezultat la SearchResult
-  const rawResults: (SearchResult & { _allBboxes: [number, number, number, number][]; _ref?: string })[] = data.map(
+  const rawResults: (SearchResult & { _allBboxes: [number, number, number, number][]; _name: string })[] = data.map(
     (item: any, idx: number) => {
-      const bbox = item.boundingbox ? [
-        parseFloat(item.boundingbox[2]),
-        parseFloat(item.boundingbox[0]),
-        parseFloat(item.boundingbox[3]),
-        parseFloat(item.boundingbox[1]),
-      ] as [number, number, number, number] : undefined;
-
+      const bbox = item.boundingbox ? parseNominatimBbox(item.boundingbox) : undefined;
+      const name = item.namedetails?.name ?? item.display_name.split(',')[0];
       return {
         id: `${item.osm_id ?? idx}`,
-        name: item.namedetails?.name ?? item.display_name.split(',')[0],
+        name,
         displayName: item.display_name,
         lat: parseFloat(item.lat),
         lng: parseFloat(item.lon),
         type: classifyType(item.type, item.class),
         bbox,
         _allBboxes: bbox ? [bbox] : [],
-        _ref: item.namedetails?.ref,
+        _name: name,
       };
     }
   );
 
-  // Deduplicare: pentru drumuri/autostrazi, grupeaza dupa nume si combina bbox-urile
+  // Deduplicare: pentru drumuri/autostrazi, grupeaza dupa nume
   const roadTypes = new Set<SearchResult['type']>(['highway', 'road']);
   const nameMap = new Map<string, typeof rawResults[0]>();
   const uniqueResults: typeof rawResults[0][] = [];
-
   for (const result of rawResults) {
     if (roadTypes.has(result.type)) {
       const key = result.name.toLowerCase();
@@ -174,44 +164,37 @@ export async function searchNominatim(query: string): Promise<SearchResult[]> {
         if (result.bbox) {
           existing._allBboxes.push(result.bbox);
         }
-        if (!existing._ref && result._ref) {
-          existing._ref = result._ref;
-        }
       }
     } else {
       uniqueResults.push(result);
     }
   }
 
-  // Aplica bbox-ul combinat si imbunatatit cu Overpass pentru drumuri
-  const SMALL_BBOX_THRESHOLD = 0.05; // grade - mai mic de ~5km
-
-  const overpassPromises = uniqueResults.map(async result => {
+  // Imbunatateste bbox-urile pentru drumuri cu o cautare suplimentara Nominatim
+  const SMALL_BBOX_THRESHOLD = 0.3; // grade - mai mic de ~30km
+  const enrichPromises = uniqueResults.map(async result => {
     if (roadTypes.has(result.type)) {
-      // Combina bbox-urile din Nominatim
+      // Combina bbox-urile din rezultatele initiale
       if (result._allBboxes.length > 0) {
         result.bbox = mergeBboxes(result._allBboxes);
       }
-
-      // Daca bbox-ul combinat e inca mic sau nu exista, incearca Overpass
-      const bboxIsSmall = !result.bbox ||
-        (result.bbox[2] - result.bbox[0]) < SMALL_BBOX_THRESHOLD ||
-        (result.bbox[3] - result.bbox[1]) < SMALL_BBOX_THRESHOLD;
-
-      if (bboxIsSmall && result._ref) {
-        const overpassBbox = await fetchRoadBboxFromOverpass(result._ref);
-        if (overpassBbox && bboxArea(overpassBbox) > 0) {
-          result.bbox = overpassBbox;
+      // Daca bbox-ul e mic sau absent, cauta segmentele complete ale drumului
+      const bbox = result.bbox;
+      const bboxWidth = bbox ? bbox[2] - bbox[0] : 0;
+      const bboxHeight = bbox ? bbox[3] - bbox[1] : 0;
+      if (!bbox || bboxWidth < SMALL_BBOX_THRESHOLD || bboxHeight < SMALL_BBOX_THRESHOLD) {
+        const fullBbox = await fetchRoadBboxByName(result._name);
+        if (fullBbox) {
+          result.bbox = fullBbox;
         }
       }
     }
-
     // Sterge campurile temporare
-    const { _allBboxes, _ref, ...cleanResult } = result;
+    const { _allBboxes, _name, ...cleanResult } = result;
     return cleanResult as SearchResult;
   });
 
-  const finalResults = await Promise.all(overpassPromises);
+  const finalResults = await Promise.all(enrichPromises);
   return finalResults.slice(0, 15);
 }
 
@@ -221,15 +204,12 @@ export async function fetchRoute(waypoints: { lat: number; lng: number }[]): Pro
   duration: number;
 } | null> {
   if (waypoints.length < 2) return null;
-
   const coords = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
   const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   if (!data.routes?.length) return null;
-
   const route = data.routes[0];
   return {
     geometry: route.geometry,
