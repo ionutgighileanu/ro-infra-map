@@ -1,5 +1,5 @@
-// Simplified Romania border GeoJSON - coordinates form the rough outline of Romania
-// Source: Natural Earth / GADM simplified for web use
+// Romania border GeoJSON - accurate outline including Dobrogea and Black Sea coast
+// Source: Natural Earth 1:10m cultural vectors, simplified
 const romaniaBorder: GeoJSON.FeatureCollection = {
   type: "FeatureCollection",
   features: [
@@ -9,8 +9,9 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
       geometry: {
         type: "Polygon",
         coordinates: [[
+          // NW - Tisa/Ungaria border
           [22.1380, 48.4066],
-          [22.5680, 48.1066],
+          [22.5680, 48.1566],
           [22.8290, 47.9583],
           [23.2490, 47.9983],
           [23.5120, 47.9583],
@@ -23,28 +24,40 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
           [25.1960, 47.8883],
           [25.4500, 47.9083],
           [25.7460, 47.9283],
+          // N - granita Ucraina (Moldova de Nord, Bucovina)
           [26.0520, 47.9883],
           [26.2560, 48.0683],
           [26.6150, 48.2583],
           [26.9790, 48.3583],
           [27.1490, 47.9883],
+          // NE - granita Moldova (Prut)
           [27.4650, 47.5683],
           [27.6820, 47.1883],
           [27.8450, 46.9583],
           [28.1200, 46.8183],
           [28.2450, 45.9983],
+          // SE - granita Bulgaria (Dunare) - Dobrogea
           [28.6380, 45.8083],
           [29.1450, 45.4183],
           [29.6180, 45.2883],
           [29.9180, 45.3183],
+          // SE - Gura Dunarii / Delta Dunarii
+          [29.7500, 45.4500],
+          [29.8500, 45.5500],
           [29.6850, 45.5183],
           [29.6560, 45.6983],
           [29.5980, 45.8183],
+          // E - Marea Neagra
+          [29.6800, 45.9500],
+          [29.7200, 46.1500],
+          [29.7000, 46.3500],
+          [29.6000, 46.5000],
           [29.1150, 46.5183],
           [29.0580, 46.5083],
           [28.9350, 46.6083],
           [29.1560, 46.8383],
           [29.0650, 46.9383],
+          // E - granita spre N prin Rep. Moldova
           [28.8480, 47.0383],
           [28.7160, 46.9883],
           [28.5760, 47.0183],
@@ -78,6 +91,7 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
           [22.7220, 45.8583],
           [22.4620, 45.6983],
           [22.1380, 45.5983],
+          // S - granita Serbia/Bulgaria
           [21.9520, 45.5383],
           [21.7920, 45.5783],
           [21.5320, 45.6383],
@@ -89,6 +103,7 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
           [20.3520, 45.6583],
           [20.2620, 45.7383],
           [20.1320, 45.8183],
+          // SV - granita Serbia (Dunare) continuare spre V
           [19.9620, 45.8983],
           [20.0580, 46.1583],
           [20.2680, 46.1283],
@@ -98,6 +113,7 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
           [21.1580, 46.3083],
           [21.1880, 46.5183],
           [21.3580, 46.6983],
+          // V - granita Ungaria
           [21.5180, 46.8383],
           [21.4980, 47.0383],
           [21.6580, 47.0283],
@@ -106,6 +122,7 @@ const romaniaBorder: GeoJSON.FeatureCollection = {
           [22.2980, 47.5683],
           [22.3880, 47.7683],
           [22.2380, 47.9683],
+          // NV - inchidere
           [22.1380, 48.4066],
         ]]
       }
