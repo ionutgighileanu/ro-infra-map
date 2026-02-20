@@ -6,19 +6,37 @@ export default function MapView() {
   const { containerRef, initMap } = useMapInstance();
 
   useEffect(() => {
-    const map = initMap();
+    const container = containerRef.current;
+    if (!container) return;
 
-    if (map) {
-      const handle = requestAnimationFrame(() => {
-        map.resize();
-      });
-      return () => {
-        cancelAnimationFrame(handle);
-        map.remove();
-      };
-    }
+    let map: ReturnType<typeof initMap> | undefined;
+    let rafHandle: number;
+
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width === 0 || height === 0) return;
+
+      // Disconnect after first non-zero measurement
+      ro.disconnect();
+
+      if (!map) {
+        map = initMap();
+      }
+
+      if (map) {
+        rafHandle = requestAnimationFrame(() => {
+          map!.resize();
+        });
+      }
+    });
+
+    ro.observe(container);
 
     return () => {
+      ro.disconnect();
+      if (rafHandle) cancelAnimationFrame(rafHandle);
       if (map) map.remove();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -30,6 +48,7 @@ export default function MapView() {
         flex: 1,
         width: '100%',
         height: '100%',
+        minHeight: 0,
         position: 'relative',
         '& .maplibregl-ctrl-bottom-right': {
           bottom: '16px',
