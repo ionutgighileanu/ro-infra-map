@@ -31,12 +31,6 @@ function isRoadQuery(query: string): boolean {
   return /^(a\d+|dn\d+|dj\d+|dc\d+|autostrada|drum\s+national)/i.test(query.trim());
 }
 
-// Extrage codul de referinta (ref) din query - ex: "A1" -> "A1", "DN1" -> "DN1"
-function extractRef(query: string): string | null {
-  const m = query.trim().match(/^(a\d+[a-z]?|dn\d+[a-z]?|dj\d+[a-z]?|dc\d+[a-z]?)/i);
-  return m ? m[1].toUpperCase() : null;
-}
-
 // Combina mai multe bounding box-uri intr-unul singur care le cuprinde pe toate
 function mergeBboxes(bboxes: [number, number, number, number][]): [number, number, number, number] {
   return bboxes.reduce(
@@ -58,12 +52,10 @@ function bboxArea(bbox: [number, number, number, number]): number {
 // Interogheaza Overpass API pentru bbox-ul complet al unui drum dupa ref tag
 async function fetchRoadBboxFromOverpass(ref: string): Promise<[number, number, number, number] | null> {
   try {
-    // Query Overpass: gaseste toate relatiile si wayurile cu ref=<ref> in Romania
     const query = `[out:json][timeout:10];
 (
-  relation["ref"="${ref}"]["route"="road"]["country"="RO"];
+  relation["ref"="${ref}"]["route"="road"];
   relation["ref"="${ref}"]["type"="route"]["route"="road"];
-  way["ref"="${ref}"]["highway"]["country_code"="RO"];
 );
 out bb;`;
 
