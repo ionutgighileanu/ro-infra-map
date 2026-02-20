@@ -25,41 +25,113 @@ function classifyType(osmType: string, osmClass: string): SearchResult['type'] {
   return 'other';
 }
 
+// Detecteaza daca query-ul pare a fi un cod de autostrada/drum national
+function isRoadQuery(query: string): boolean {
+  return /^(a\d+|dn\d+|dj\d+|dc\d+|autostrada|drum\s+national)/i.test(query.trim());
+}
+
+// Combina mai multe bounding box-uri intr-unul singur care le cuprinde pe toate
+function mergeBboxes(bboxes: [number, number, number, number][]): [number, number, number, number] {
+  return bboxes.reduce(
+    ([west, south, east, north], [w, s, e, n]) => [
+      Math.min(west, w),
+      Math.min(south, s),
+      Math.max(east, e),
+      Math.max(north, n),
+    ],
+    [Infinity, Infinity, -Infinity, -Infinity] as [number, number, number, number]
+  );
+}
+
 export async function searchNominatim(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return [];
 
+  const trimmedQuery = query.trim();
+
+  // Pentru autostrazi si drumuri nationale, adauga "Romania" la query pentru precizie mai buna
+  const searchQuery = isRoadQuery(trimmedQuery) ? `${trimmedQuery}, Romania` : trimmedQuery;
+
   const params = new URLSearchParams({
-    q: query,
+    q: searchQuery,
     format: 'json',
     countrycodes: 'ro',
     addressdetails: '1',
-    limit: '12',
+    namedetails: '1',
+    limit: '50',
     dedupe: '1',
   });
 
   const res = await fetch(`${NOMINATIM_BASE}/search?${params}`, {
-    headers: { 'Accept-Language': 'ro,en', 'User-Agent': 'RO-InfraMap/1.0' }
+    headers: {
+      'Accept-Language': 'ro,en',
+      'User-Agent': 'RO-InfraMap/1.0'
+    }
   });
 
   if (!res.ok) throw new Error('Nominatim request failed');
+
   const data = await res.json();
 
-  return data.map((item: any, idx: number): SearchResult => ({
-    id: `${item.osm_id ?? idx}`,
-    name: item.namedetails?.name ?? item.display_name.split(',')[0],
-    displayName: item.display_name,
-    lat: parseFloat(item.lat),
-    lng: parseFloat(item.lon),
-    type: classifyType(item.type, item.class),
-    bbox: item.boundingbox
-      ? [
-          parseFloat(item.boundingbox[2]),
-          parseFloat(item.boundingbox[0]),
-          parseFloat(item.boundingbox[3]),
-          parseFloat(item.boundingbox[1]),
-        ]
-      : undefined,
-  }));
+  // Mapeaza fiecare rezultat la SearchResult
+  const rawResults: SearchResult[] = data.map((item: any, idx: number): SearchResult => {
+    // Nominatim boundingbox: [lat_min, lat_max, lon_min, lon_max]
+    const bbox = item.boundingbox ? [
+      parseFloat(item.boundingbox[2]), // west (lon_min)
+      parseFloat(item.boundingbox[0]), // south (lat_min)
+      parseFloat(item.boundingbox[3]), // east (lon_max)
+      parseFloat(item.boundingbox[1]), // north (lat_max)
+    ] as [number, number, number, number] : undefined;
+
+    return {
+      id: `${item.osm_id ?? idx}`,
+      name: item.namedetails?.name ?? item.display_name.split(',')[0],
+      displayName: item.display_name,
+      lat: parseFloat(item.lat),
+      lng: parseFloat(item.lon),
+      type: classifyType(item.type, item.class),
+      bbox,
+    };
+  });
+
+  // Deduplicare: pentru drumuri/autostrazi, grupeaza dupa nume si combina bbox-urile
+  const roadTypes = new Set<SearchResult['type']>(['highway', 'road']);
+  const nameMap = new Map<string, SearchResult & { _allBboxes: [number, number, number, number][] }>();
+
+  const uniqueResults: SearchResult[] = [];
+
+  for (const result of rawResults) {
+    if (roadTypes.has(result.type)) {
+      const key = result.name.toLowerCase();
+      if (!nameMap.has(key)) {
+        const entry = {
+          ...result,
+          _allBboxes: result.bbox ? [result.bbox] : [],
+        };
+        nameMap.set(key, entry);
+        uniqueResults.push(entry);
+      } else {
+        const existing = nameMap.get(key)!;
+        if (result.bbox) {
+          existing._allBboxes.push(result.bbox);
+        }
+      }
+    } else {
+      uniqueResults.push(result);
+    }
+  }
+
+  // Aplica bbox-ul combinat pentru fiecare drum
+  for (const result of uniqueResults) {
+    if (roadTypes.has(result.type)) {
+      const entry = result as SearchResult & { _allBboxes?: [number, number, number, number][] };
+      if (entry._allBboxes && entry._allBboxes.length > 0) {
+        result.bbox = mergeBboxes(entry._allBboxes);
+        delete (entry as any)._allBboxes;
+      }
+    }
+  }
+
+  return uniqueResults.slice(0, 15);
 }
 
 export async function fetchRoute(waypoints: { lat: number; lng: number }[]): Promise<{
