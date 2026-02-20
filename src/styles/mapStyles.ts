@@ -1,18 +1,37 @@
 import type { StyleSpecification } from 'maplibre-gl';
 
+// Layer IDs pentru labels overlay - pot fi toggleate independent
+export const LABELS_LAYER_ID = 'labels-overlay';
+export const SATELLITE_LABELS_LAYER_ID = 'satellite-labels-overlay';
+
 export const BASIC_STYLE: StyleSpecification = {
   version: 8,
   name: 'RO Infra Basic',
   sources: {
-    'osm-tiles': {
+    // Harta de baza fara labels (CartoDB Positron No Labels)
+    'carto-base': {
       type: 'raster',
       tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://a.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: '© OpenStreetMap contributors © CARTO',
+      maxzoom: 19,
+    },
+    // Labels overlay - poate fi toggleat (CartoDB Only Labels)
+    'carto-labels': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/light_only_labels/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/light_only_labels/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/light_only_labels/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/light_only_labels/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors © CARTO',
       maxzoom: 19,
     },
   },
@@ -20,19 +39,25 @@ export const BASIC_STYLE: StyleSpecification = {
     {
       id: 'background',
       type: 'background',
-      paint: { 'background-color': '#1a2332' },
+      paint: { 'background-color': '#f0f0f0' },
     },
     {
-      id: 'osm-tiles',
+      id: 'carto-base-layer',
       type: 'raster',
-      source: 'osm-tiles',
+      source: 'carto-base',
       paint: {
-        'raster-opacity': 0.85,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.6,
-        'raster-saturation': -0.3,
-        'raster-contrast': 0.1,
-        'raster-hue-rotate': 200,
+        'raster-opacity': 1,
+      },
+    },
+    {
+      id: LABELS_LAYER_ID,
+      type: 'raster',
+      source: 'carto-labels',
+      paint: {
+        'raster-opacity': 1,
+      },
+      layout: {
+        visibility: 'visible',
       },
     },
   ],
@@ -51,6 +76,19 @@ export const SATELLITE_STYLE: StyleSpecification = {
       attribution: '© Esri, Maxar, Earthstar Geographics',
       maxzoom: 19,
     },
+    // Labels overlay pentru satelit (CartoDB Dark Only Labels)
+    'carto-labels-dark': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors © CARTO',
+      maxzoom: 19,
+    },
   },
   layers: [
     {
@@ -63,6 +101,17 @@ export const SATELLITE_STYLE: StyleSpecification = {
       type: 'raster',
       source: 'esri-sat',
       paint: { 'raster-opacity': 1 },
+    },
+    {
+      id: SATELLITE_LABELS_LAYER_ID,
+      type: 'raster',
+      source: 'carto-labels-dark',
+      paint: {
+        'raster-opacity': 0.9,
+      },
+      layout: {
+        visibility: 'visible',
+      },
     },
   ],
 };
