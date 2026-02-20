@@ -3,6 +3,9 @@ import type { SearchResult } from '../types';
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
 const OVERPASS_BASE = 'https://overpass-api.de/api/interpreter';
 
+// Bounding box aproximativ al Romaniei: [minLat, minLon, maxLat, maxLon]
+const ROMANIA_BBOX = { minLon: 20.0, minLat: 43.5, maxLon: 30.5, maxLat: 48.5 };
+
 const OSM_TYPE_MAP: Record<string, SearchResult['type']> = {
   motorway: 'highway',
   trunk: 'highway',
@@ -49,52 +52,25 @@ function bboxArea(bbox: [number, number, number, number]): number {
   return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
 }
 
-// Interogheaza Overpass API pentru bbox-ul complet al unui drum dupa ref tag
-async function fetchRoadBboxFromOverpass(ref: string): Promise<[number, number, number, number] | null> {
-  try {
-    const query = `[out:json][timeout:10];
-(
-  relation["ref"="${ref}"]["route"="road"];
-  relation["ref"="${ref}"]["type"="route"]["route"="road"];
-);
-out bb;`;
-
-    const res = await fetch(OVERPASS_BASE, {
-      method: 'POST',
-      body: query,
-      headers: { 'Content-Type': 'text/plain' },
-    });
-
-    if (!res.ok) return null;
-    const data = await res.json();
-
-    const bboxes: [number, number, number, number][] = [];
-    for (const el of data.elements ?? []) {
-      if (el.bounds) {
-        bboxes.push([
-          el.bounds.minlon,
-          el.bounds.minlat,
-          el.bounds.maxlon,
-          el.bounds.maxlat,
-        ]);
-      }
-    }
-
-    if (bboxes.length === 0) return null;
-    return mergeBboxes(bboxes);
-  } catch {
-    return null;
-  }
+// Verifica daca un bbox se suprapune cu Romania (cel putin partial)
+function isInRomania(bbox: [number, number, number, number]): boolean {
+  const [west, south, east, north] = bbox;
+  return (
+    east > ROMANIA_BBOX.minLon &&
+    west < ROMANIA_BBOX.maxLon &&
+    north > ROMANIA_BBOX.minLat &&
+    south < ROMANIA_BBOX.maxLat
+  );
 }
 
-// Fallback Overpass: interogheaza toate wayurile cu ref=<ref> si highway in Romania
-async function fetchRoadBboxFromOverpassFallback(ref: string): Promise<[number, number, number, number] | null> {
+// Interogheaza Overpass API pentru bbox-ul complet al unui drum in Romania
+async function fetchRoadBboxFromOverpass(ref: string): Promise<[number, number, number, number] | null> {
   try {
-    const query = `[out:json][timeout:15];
-area["ISO3166-1"="RO"]->.ro;
+    // Utilizeaza bbox-ul Romaniei ca filtru global pentru a evita rezultate din alte tari
+    const query = `[out:json][timeout:15][bbox:${ROMANIA_BBOX.minLat},${ROMANIA_BBOX.minLon},${ROMANIA_BBOX.maxLat},${ROMANIA_BBOX.maxLon}];
 (
-  way(area.ro)["ref"="${ref}"]["highway"~"motorway|trunk|primary|secondary"];
-  relation(area.ro)["ref"="${ref}"]["route"="road"];
+  way["ref"="${ref}"]["highway"~"motorway|trunk|primary|secondary"];
+  relation["ref"="${ref}"]["route"="road"];
 );
 out bb;`;
 
@@ -110,12 +86,15 @@ out bb;`;
     const bboxes: [number, number, number, number][] = [];
     for (const el of data.elements ?? []) {
       if (el.bounds) {
-        bboxes.push([
+        const b: [number, number, number, number] = [
           el.bounds.minlon,
           el.bounds.minlat,
           el.bounds.maxlon,
           el.bounds.maxlat,
-        ]);
+        ];
+        if (isInRomania(b)) {
+          bboxes.push(b);
+        }
       }
     }
 
@@ -195,7 +174,6 @@ export async function searchNominatim(query: string): Promise<SearchResult[]> {
         if (result.bbox) {
           existing._allBboxes.push(result.bbox);
         }
-        // Pastreaza ref-ul daca exista
         if (!existing._ref && result._ref) {
           existing._ref = result._ref;
         }
@@ -221,8 +199,7 @@ export async function searchNominatim(query: string): Promise<SearchResult[]> {
         (result.bbox[3] - result.bbox[1]) < SMALL_BBOX_THRESHOLD;
 
       if (bboxIsSmall && result._ref) {
-        const overpassBbox = await fetchRoadBboxFromOverpass(result._ref)
-          .then(b => b || fetchRoadBboxFromOverpassFallback(result._ref!));
+        const overpassBbox = await fetchRoadBboxFromOverpass(result._ref);
         if (overpassBbox && bboxArea(overpassBbox) > 0) {
           result.bbox = overpassBbox;
         }
