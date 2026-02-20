@@ -15,7 +15,7 @@ export default function App() {
       }}
     >
       <Sidebar />
-      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden', height: '100%' }}>
         <MapView />
       </Box>
     </Box>
