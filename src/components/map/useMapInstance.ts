@@ -11,7 +11,7 @@ import {
   SATELLITE_LABELS_LAYER_ID,
 } from '../../styles/mapStyles';
 import romaniaBorder from '../../data/romaniaBorder';
-import type { Route } from '../../types';
+import type { Route, SearchResult } from '../../types';
 
 const BORDER_SOURCE = 'romania-border';
 const BORDER_FILL_LAYER = 'romania-border-fill';
@@ -20,6 +20,17 @@ const BORDER_LINE_LAYER = 'romania-border-line';
 // Determina care layer ID de labels e activ pentru stilul curent
 function getLabelsLayerId(mapType: string) {
   return mapType === 'satellite' ? SATELLITE_LABELS_LAYER_ID : LABELS_LAYER_ID;
+}
+
+// Determina zoom-ul maxim potrivit in functie de tipul rezultatului selectat
+function getMaxZoomForType(type: SearchResult['type']): number {
+  switch (type) {
+    case 'highway': return 11;  // autostrada - arata traseul complet
+    case 'road':    return 12;  // drum national
+    case 'street':  return 15;  // strada
+    case 'city':    return 13;  // localitate
+    default:        return 14;
+  }
 }
 
 export function useMapInstance() {
@@ -38,7 +49,6 @@ export function useMapInstance() {
     if (!containerRef.current || mapRef.current) return;
 
     const style = mapType === 'satellite' ? SATELLITE_STYLE : BASIC_STYLE;
-
     const map = new maplibregl.Map({
       container: containerRef.current,
       style,
@@ -58,7 +68,6 @@ export function useMapInstance() {
         type: 'geojson',
         data: romaniaBorder,
       });
-
       map.addLayer({
         id: BORDER_FILL_LAYER,
         type: 'fill',
@@ -68,7 +77,6 @@ export function useMapInstance() {
           'fill-opacity': 0,
         },
       });
-
       map.addLayer({
         id: BORDER_LINE_LAYER,
         type: 'line',
@@ -166,13 +174,21 @@ export function useMapInstance() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !highlightedFeature) return;
+
+    const maxZoom = getMaxZoomForType(highlightedFeature.type);
+
     if (highlightedFeature.bbox) {
       map.fitBounds(
-        [[highlightedFeature.bbox[0], highlightedFeature.bbox[1]], [highlightedFeature.bbox[2], highlightedFeature.bbox[3]]],
-        { padding: 80, maxZoom: 16, duration: 1200 }
+        [[highlightedFeature.bbox[0], highlightedFeature.bbox[1]],
+         [highlightedFeature.bbox[2], highlightedFeature.bbox[3]]],
+        { padding: 80, maxZoom, duration: 1200 }
       );
     } else {
-      map.flyTo({ center: [highlightedFeature.lng, highlightedFeature.lat], zoom: 14, duration: 1200 });
+      map.flyTo({
+        center: [highlightedFeature.lng, highlightedFeature.lat],
+        zoom: Math.min(maxZoom, 14),
+        duration: 1200,
+      });
     }
   }, [highlightedFeature]);
 
@@ -196,7 +212,6 @@ function addRouteLayer(map: maplibregl.Map, route: Route) {
       type: 'geojson',
       data: { type: 'Feature', properties: {}, geometry: route.geometry },
     });
-
     // Casing (outline)
     map.addLayer({
       id: casingId,
@@ -209,7 +224,6 @@ function addRouteLayer(map: maplibregl.Map, route: Route) {
         'line-opacity': 0.4,
       },
     });
-
     // Main route line
     map.addLayer({
       id: layerId,
@@ -247,6 +261,7 @@ function syncRouteLayers(map: maplibregl.Map, routes: Route[]) {
       map.removeLayer(layer.id);
     }
   });
+
   const styleSources = map.getStyle().sources ?? {};
   Object.keys(styleSources).forEach(sourceId => {
     const match = sourceId.match(/^route-(.+)$/);
